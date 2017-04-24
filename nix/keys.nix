@@ -123,34 +123,36 @@ in
       "things to break."
     )];
 
-    system.activationScripts.nixops-keys = stringAfter [ "users" "groups" ]
-      ''
-        mkdir -p /run/keys -m 0750
-        chown root:keys /run/keys
+    system.activationScripts.nixops-keys =
+      let script = ''
+          mkdir -p /run/keys -m 0750
+          chown root:keys /run/keys
 
-        ${optionalString config.deployment.storeKeysOnMachine
-            (concatStrings (mapAttrsToList (name: value:
-              let
-                # FIXME: The key file should be marked as private once
-                # https://github.com/NixOS/nix/issues/8 is fixed.
-                keyFile = pkgs.writeText name value.text;
-              in "ln -sfn ${keyFile} /run/keys/${name}\n")
-              config.deployment.keys)
-            + ''
-              # FIXME: delete obsolete keys?
-              touch /run/keys/done
-            '')
-        }
+          ${optionalString config.deployment.storeKeysOnMachine
+              (concatStrings (mapAttrsToList (name: value:
+                let
+                  # FIXME: The key file should be marked as private once
+                  # https://github.com/NixOS/nix/issues/8 is fixed.
+                  keyFile = pkgs.writeText name value.text;
+                in "ln -sfn ${keyFile} /run/keys/${name}\n")
+                config.deployment.keys)
+              + ''
+                # FIXME: delete obsolete keys?
+                touch /run/keys/done
+              '')
+          }
 
-        ${concatStringsSep "\n" (flip mapAttrsToList config.deployment.keys (name: value:
-          # Make sure each key has correct ownership, since the configured owning
-          # user or group may not have existed when first uploaded.
-          ''
-            [[ -f "/run/keys/${name}" ]] && chown '${value.user}:${value.group}' "/run/keys/${name}"
-          ''
-        ))}
-      '';
-
+          ${concatStringsSep "\n" (flip mapAttrsToList config.deployment.keys (name: value:
+            # Make sure each key has correct ownership, since the configured owning
+            # user or group may not have existed when first uploaded.
+            ''
+              [[ -f "/run/keys/${name}" ]] && chown '${value.user}:${value.group}' "/run/keys/${name}"
+            ''
+          ))}
+        '';
+      # Generate the script in a separate file to avoid a "Argument list too long" with a huge number of keys.
+      in stringAfter [ "users" "groups" ] "source ${pkgs.writeText "setup-keys.sh" script}";
+ 
     systemd.services = (
       { nixops-keys =
         { enable = config.deployment.keys != {};
